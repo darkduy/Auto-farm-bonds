@@ -1,8 +1,8 @@
 --[[
     Auto Farm Bonds PRO V8 (Community Enhanced)
-    Nâng cấp từ V7: Loại bỏ enemy detection, nâng cấp phát hiện Bond xa hơn, di chuyển tới Bond mượt hơn,
-    và thêm khả năng đi xuyên tường (ignoreWalls).
-    Lưu ý: Script phức tạp, cần test kỹ trên game.
+    Phiên bản này nâng cấp khả năng phát hiện Bond xa hơn, di chuyển mượt hơn, và thêm tùy chọn đi xuyên tường (ignoreWalls).
+    Ngoài ra, tích hợp GUI có thể kéo thả, resize và lưu/tải cấu hình.
+    Lưu ý: Script phức tạp, cần test kỹ trong game.
 ]]
 
 --#region SERVICES & VARIABLES
@@ -21,12 +21,12 @@ local currentCamera = workspace.CurrentCamera
 local defaultConfig = {
     bondName = "Bond",           -- Tên vật phẩm cần farm
     bondUpdate = 1.5,            -- Thời gian cập nhật danh sách Bond (giây)
-    detectionDist = 150,         -- Khoảng cách nhận diện Bond (studs) – đã tăng lên
+    detectionDist = 150,         -- Khoảng cách nhận diện Bond (studs)
     tweenSpeed = {min = 35, max = 45}, -- Tốc độ tween (ngẫu nhiên trong khoảng)
     espUpdate = 0.4,             -- Tần số update ESP (giây)
     pathCheck = true,            -- Kiểm tra vật cản
-    ignoreWalls = true,          -- Nếu true, bỏ qua vật cản (cho phép đi xuyên tường)
-    autoReplayDelay = 5,         -- Tần số kiểm tra auto replay (giây)
+    ignoreWalls = true,          -- Nếu true, bỏ qua kiểm tra vật cản (đi xuyên tường)
+    autoReplayDelay = 5,         -- Tần số kiểm tra auto replay
     humanize = {
         movePattern = true,
         clickDelay = {0.1, 0.3},
@@ -56,19 +56,22 @@ local lastActions = {
 }
 --#endregion
 
---#region GUI SETUP (Advanced with Config)
+--#region GUI SETUP (Advanced with Config, Drag & Resize)
 local gui = Instance.new("ScreenGui", CoreGui)
 gui.Name = "BondFarmV8"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local function createDraggableFrame()
+-- Tạo khung GUI có thể kéo thả và resize
+local function createResizableFrame()
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(0, 350, 0, 350)
     frame.Position = UDim2.new(0, 100, 0, 100)
     frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     frame.Active = true
     frame.ZIndex = 2
+
+    -- Drag (kéo thả)
     local dragging = false
     local dragInput, dragStart, frameStart
     frame.InputBegan:Connect(function(input)
@@ -94,10 +97,42 @@ local function createDraggableFrame()
             frame.Position = UDim2.new(frameStart.X.Scale, frameStart.X.Offset + delta.X, frameStart.Y.Scale, frameStart.Y.Offset + delta.Y)
         end
     end)
+
+    -- Resize handle (ở góc dưới bên phải)
+    local resizeHandle = Instance.new("TextButton", frame)
+    resizeHandle.Name = "ResizeHandle"
+    resizeHandle.Size = UDim2.new(0, 20, 0, 20)
+    resizeHandle.Position = UDim2.new(1, -20, 1, -20)
+    resizeHandle.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+    resizeHandle.BorderSizePixel = 0
+    resizeHandle.Text = ""
+    resizeHandle.AutoButtonColor = false
+
+    local resizing = false
+    local initialSize, initialMousePos
+    resizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = true
+            initialSize = frame.Size
+            initialMousePos = input.Position
+        end
+    end)
+    resizeHandle.InputChanged:Connect(function(input)
+        if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - initialMousePos
+            frame.Size = UDim2.new(initialSize.X.Scale, initialSize.X.Offset + delta.X, initialSize.Y.Scale, initialSize.Y.Offset + delta.Y)
+        end
+    end)
+    resizeHandle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = false
+        end
+    end)
+
     return frame
 end
 
-local mainFrame = createDraggableFrame()
+local mainFrame = createResizableFrame()
 mainFrame.Parent = gui
 
 local function createButton(text, pos, size)
@@ -140,17 +175,20 @@ local function createConfigSlider(label, minVal, maxVal, currentVal, configKey, 
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.BackgroundTransparency = 1
     lbl.TextSize = 14
+
     local slider = Instance.new("Frame", mainFrame)
     slider.Size = UDim2.new(0, 150, 0, 10)
     slider.Position = UDim2.new(0, 160, 0, yPos + 5)
     slider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
     slider.BorderSizePixel = 0
+
     local handle = Instance.new("TextButton", slider)
     handle.Size = UDim2.new(0, 15, 0, 15)
     handle.Position = UDim2.new((currentVal - minVal) / (maxVal - minVal), -7.5, 0, -2.5)
     handle.BackgroundColor3 = Color3.fromRGB(150, 150, 200)
     handle.Text = ""
     handle.Draggable = true
+
     local function updateValue(xPosition)
         local percentage = math.clamp(xPosition / slider.AbsoluteSize.X, 0, 1)
         local newValue = math.floor(minVal + percentage * (maxVal - minVal) + 0.5)
@@ -164,7 +202,7 @@ local function createConfigSlider(label, minVal, maxVal, currentVal, configKey, 
     end
     handle.DragBegin:Connect(function() end)
     handle.DragStopped:Connect(function(x, y) updateValue(x) end)
-    table.insert(configSliders, {labelObject = lbl, configKey = configKey, subKey = subKey, minVal = minVal, maxVal = maxVal})
+    table.insert(configSliders, {labelObject = lbl, configKey = configKey, subKey = subKey, minVal = minVal, maxVal = maxVal, handle = handle})
     return lbl
 end
 
@@ -222,12 +260,22 @@ end
 local function updateGuiFromConfig()
     for _, sliderInfo in ipairs(configSliders) do
         local lbl = sliderInfo.labelObject
+        local handle = sliderInfo.handle
+        local currentVal
         if sliderInfo.subKey then
-            lbl.Text = tostring(sliderInfo.configKey) .. " " .. tostring(sliderInfo.subKey) .. ": " .. tostring(config[sliderInfo.configKey][sliderInfo.subKey])
+            currentVal = config[sliderInfo.configKey][sliderInfo.subKey]
+            lbl.Text = tostring(sliderInfo.configKey) .. " " .. tostring(sliderInfo.subKey) .. ": " .. tostring(currentVal)
         else
-            lbl.Text = tostring(sliderInfo.configKey) .. ": " .. tostring(config[sliderInfo.configKey])
+            currentVal = config[sliderInfo.configKey]
+            lbl.Text = tostring(sliderInfo.configKey) .. ": " .. tostring(currentVal)
+        end
+        if handle then
+            local minVal, maxVal = sliderInfo.minVal, sliderInfo.maxVal
+            local percentage = math.clamp((currentVal - minVal) / (maxVal - minVal), 0, 1)
+            handle.Position = UDim2.new(percentage, -7.5, 0, -2.5)
         end
     end
+    print("GUI updated from loaded config")
 end
 --#endregion
 
@@ -266,7 +314,7 @@ local function randomizePosition(basePos)
 end
 
 local function isPathClear(startPos, targetPos)
-    if config.ignoreWalls then return true end  -- Nếu ignoreWalls bật, bỏ qua kiểm tra vật cản
+    if config.ignoreWalls then return true end
     if not config.pathCheck then return true end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Blacklist
@@ -411,8 +459,6 @@ local function farmBondsV8()
         return
     end
 
-    -- Không còn enemy avoidance (đã loại bỏ enemy detection)
-
     if tick() - lastActions.bondUpdate >= config.bondUpdate then
         pcall(updateBondList)
         pcall(updateSpatialGrid)
@@ -445,9 +491,14 @@ local function farmBondsV8()
     end
 
     if not isPathClear(hrp.Position, bond.Position) then
-        updateStatus("Path obstructed; bypassing wall...")
-        -- Nếu ignoreWalls=true, isPathClear luôn trả về true, do đó sẽ không vào đây.
-        -- Nhưng nếu không ignoreWalls, chúng ta sẽ không dùng pathfinding: thay vì đó, ta cho phép di chuyển trực tiếp.
+        updateStatus("Path obstructed; using alternative movement...")
+        if not config.ignoreWalls then
+            local success = moveToUsingPath(bond.Position)
+            if success then
+                safeFireTouch(bond)
+                return
+            end
+        end
         hrp.CFrame = CFrame.new(randomizePosition(bond.Position))
         safeFireTouch(bond)
         return
@@ -456,7 +507,7 @@ local function farmBondsV8()
     updateStatus("Moving to Bond (" .. math.floor(dist) .. " studs)")
     local targetCFrame = CFrame.new(randomizePosition(bond.Position))
     local moveSpeed = math.random(config.tweenSpeed.min, config.tweenSpeed.max)
-    local duration = math.clamp(dist / moveSpeed, 0.5, 5)  -- Thời gian tween
+    local duration = math.clamp(dist / moveSpeed, 0.5, 5)
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
     activeTween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetCFrame)})
     activeTween:Play()
@@ -600,7 +651,7 @@ btnSave.MouseButton1Click:Connect(saveConfig)
 
 --#region INITIAL LOAD
 loadConfig()
-updateGuiFromConfig()  -- Cập nhật GUI với giá trị từ config đã load
+updateGuiFromConfig()
 print("BondFarmV8 Loaded. Config:", config)
 updateStatus("Ready")
 --#endregion
